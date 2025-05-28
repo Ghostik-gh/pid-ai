@@ -3,7 +3,6 @@ import matplotlib.pyplot as plt
 from dataclasses import dataclass
 from typing import List, Tuple
 import json
-from pathlib import Path
 
 @dataclass
 class SystemState:
@@ -171,7 +170,7 @@ class CoolingSimulation:
 
 def main():
     # Параметры симуляции
-    pid_params = (2.0, 0.05, 1.0)  # Kp, Ki, Kd - увеличили пропорциональную и дифференциальную составляющие
+    pid_params = (2.0, 0.1, 0.05)  # Kp, Ki, Kd - увеличили пропорциональную и дифференциальную составляющие
     target_temp = 20.0  # Целевая температура
     simulation_time = 300.0  # Время симуляции (секунды)
 

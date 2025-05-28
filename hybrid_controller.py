@@ -2,8 +2,7 @@ import numpy as np
 import torch
 import json
 import matplotlib.pyplot as plt
-from typing import List, Tuple, Optional
-from dataclasses import dataclass
+from typing import List, Tuple
 from main import RoomModel, SystemState, PIDController
 from train_nn import LSTM
 from sklearn.preprocessing import MinMaxScaler
