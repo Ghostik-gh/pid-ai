@@ -178,3 +178,5 @@ secret/
 .DS_Store
 
 *.pt
+
+*.pth
