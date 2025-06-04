@@ -151,7 +151,7 @@ def main():
     
     # Подготовка данных
     dataset, feature_scaler, target_scaler = prepare_data(
-        'simulation_data.json',
+        'simulation_data_20250604_141855.json',
         SEQUENCE_LENGTH
     )
     
