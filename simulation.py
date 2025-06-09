@@ -8,6 +8,7 @@ from sklearn.preprocessing import MinMaxScaler
 import argparse
 from train_nn import LSTM
 from datetime import datetime
+import torch.nn as nn
 
 @dataclass
 class SystemState:
@@ -23,14 +24,13 @@ class SystemState:
 class PIDController:
     """ПИД-регулятор для управления системой охлаждения"""
     def __init__(self, kp: float, ki: float, kd: float):
-        self.kp = kp  # Пропорциональный коэффициент
-        self.ki = ki  # Интегральный коэффициент
-        self.kd = kd  # Дифференциальный коэффициент
+        self.kp = kp
+        self.ki = ki
+        self.kd = kd
         self.prev_error = 0.0
         self.integral = 0.0
-        self.dt = 0.1  # Шаг времени (в секундах)
+        self.dt = 0.1
         
-        # Добавляем ограничения для интегральной составляющей
         self.integral_min = -100.0
         self.integral_max = 100.0
 
@@ -38,7 +38,6 @@ class PIDController:
         """Вычисляет управляющий сигнал на основе текущей и целевой температуры"""
         error = target - current
         
-        # Вычисление составляющих ПИД
         self.integral += error * self.dt
         
         # Ограничиваем интегральную составляющую для предотвращения интегрального насыщения
@@ -46,13 +45,11 @@ class PIDController:
         
         derivative = (error - self.prev_error) / self.dt if self.dt > 0 else 0
         
-        # Расчет каждой составляющей отдельно для лучшего контроля
         p_term = self.kp * error
         i_term = self.ki * self.integral
         d_term = self.kd * derivative
         
-        # Расчет управляющего сигнала
-        output = -(p_term + i_term + d_term)  # Инвертируем сигнал
+        output = -(p_term + i_term + d_term)
         
         # Ограничиваем выходной сигнал в диапазоне [0, 1]
         output = np.clip(output, 0, 1)
@@ -67,7 +64,7 @@ class PerlinNoiseGenerator:
         self.persistence = persistence
         self.lacunarity = lacunarity
         self.gradients: Dict[int, float] = {}
-        np.random.seed()  # Инициализация генератора случайных чисел
+        np.random.seed()  
         
     def _get_gradient(self, ix: int) -> float:
         """Получает или генерирует градиент для заданной точки"""
@@ -263,13 +260,20 @@ class Simulation:
         self,
         controller_type: str,
         pid_params: Tuple[float, float, float],
-        target_temp: float,
+        target_temp: float = None,
+        initial_temp: float = None,
         simulation_time: float = 300.0,
         model_path: str = None,
         scaler_params_path: str = None,
         alpha: float = 0.5
     ):
-        self.room = RoomModel()
+        # Генерация случайных температур, если не указаны
+        if target_temp is None:
+            target_temp = np.random.uniform(18.0, 28.0)  # Случайная целевая температура
+        if initial_temp is None:
+            initial_temp = np.random.uniform(25.0, 35.0)  # Случайная начальная температура
+        
+        self.room = RoomModel(initial_temp=initial_temp)
         self.target_temp = target_temp
         self.simulation_time = simulation_time
         self.dt = 0.1
@@ -371,42 +375,59 @@ def main():
                       help='Режим работы: pid - только ПИД-регулятор, hybrid - гибридный регулятор')
     parser.add_argument('--alpha', type=float, default=0.5,
                       help='Коэффициент смешивания для гибридного режима (0 - только ПИД, 1 - только НС)')
+    parser.add_argument('--num_simulations', type=int, default=1,
+                      help='Количество симуляций для сбора данных')
     args = parser.parse_args()
 
-    # Общие параметры симуляции
     pid_params = (2.0, 0.1, 0.05)
-    target_temp = 20.0
     simulation_time = 300.0
 
     try:
-        if args.mode == "pid":
-            print("Запуск симуляции с ПИД-регулятором...")
-            simulation = Simulation(
-                controller_type="pid",
-                pid_params=pid_params,
-                target_temp=target_temp,
-                simulation_time=simulation_time
-            )
-        else:
-            print("Запуск симуляции с гибридным регулятором...")
-            simulation = Simulation(
-                controller_type="hybrid",
-                pid_params=pid_params,
-                target_temp=target_temp,
-                simulation_time=simulation_time,
-                model_path='model.pth',
-                scaler_params_path='scaler_params.json',
-                alpha=args.alpha
-            )
-
-        simulation.run()
-        data_file = simulation.save_data()
-        plot_file = simulation.plot_results()
+        all_data = []
         
-        print(f"Симуляция в режиме {args.mode} завершена успешно.")
-        print("Результаты сохранены в файлах:")
-        print(f"- Данные: {data_file}")
-        print(f"- График: {plot_file}")
+        for i in range(args.num_simulations):
+            print(f"\nЗапуск симуляции {i+1}/{args.num_simulations}...")
+            
+            if args.mode == "pid":
+                simulation = Simulation(
+                    controller_type="pid",
+                    pid_params=pid_params,
+                    simulation_time=simulation_time
+                )
+            else:
+                simulation = Simulation(
+                    controller_type="hybrid",
+                    pid_params=pid_params,
+                    simulation_time=simulation_time,
+                    model_path='model.pth',
+                    scaler_params_path='scaler_params.json',
+                    alpha=args.alpha
+                )
+
+            simulation.run()
+            
+            data = [{
+                "time": state.time,
+                "current_temp": state.current_temp,
+                "target_temp": state.target_temp,
+                "output_signal": state.output_signal,
+                "error": state.error,
+                "integral": state.integral,
+                "derivative": state.derivative
+            } for state in simulation.states]
+            
+            all_data.extend(data)
+            
+            plot_file = simulation.plot_results()
+            print(f"График сохранен в: {plot_file}")
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        data_file = f"{'simulation' if args.mode == 'pid' else 'hybrid'}_data_{timestamp}.json"
+        with open(data_file, 'w') as f:
+            json.dump(all_data, f, indent=4)
+        
+        print(f"\nВсе симуляции завершены успешно.")
+        print(f"Общий набор данных сохранен в: {data_file}")
 
     except Exception as e:
         print(f"Ошибка при выполнении симуляции: {str(e)}")
