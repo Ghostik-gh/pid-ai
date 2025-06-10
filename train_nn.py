@@ -250,7 +250,7 @@ def main():
     print(f'Используется устройство: {device}')
     
     train_loader, val_loader, feature_scaler, target_scaler = prepare_data(
-        'simulation_data_20250604_213252.json',
+        'simulation_data_20250610_235551.json',
         SEQUENCE_LENGTH
     )
     

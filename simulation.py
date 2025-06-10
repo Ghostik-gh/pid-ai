@@ -108,11 +108,12 @@ class PerlinNoiseGenerator:
 
 class ThermalDisturbance:
     """Класс для генерации случайного теплового воздействия"""
-    def __init__(self, max_amplitude: float = 5.0, time_scale: float = 0.05):
+    def __init__(self, max_amplitude: float = 5.0, time_scale: float = 0.05, strong_events: List[Tuple[float, float, float]] = None):
         self.perlin = PerlinNoiseGenerator(octaves=4, persistence=0.5, lacunarity=2.0)
         self.max_amplitude = max_amplitude
         self.time_scale = time_scale
         self.offset = np.random.rand() * 1000
+        self.strong_events = strong_events if strong_events is not None else []
     
     def get_disturbance(self, time: float) -> float:
         """Получает значение теплового воздействия для заданного момента времени"""
@@ -135,6 +136,11 @@ class ThermalDisturbance:
             0.1 * spikes
         )
         
+        # Добавляем мощные возмущения, если время попадает в событие
+        for start, duration, amplitude in self.strong_events:
+            if start <= time < start + duration:
+                disturbance += amplitude
+        
         return disturbance
 
 class RoomModel:
@@ -143,7 +149,8 @@ class RoomModel:
                  initial_temp: float = 25.0,
                  thermal_mass: float = 2000.0,  # Дж/К
                  heat_transfer_coef: float = 50.0,  # Вт/К
-                 ambient_temp: float = 30.0):  # °C
+                 ambient_temp: float = 30.0,  # °C
+                 strong_events: List[Tuple[float, float, float]] = None):
         self.current_temp = initial_temp
         self.thermal_mass = thermal_mass
         self.heat_transfer_coef = heat_transfer_coef
@@ -151,7 +158,7 @@ class RoomModel:
         self.max_cooling_power = 2000  # Вт
         self.dt = 0.1  # Шаг времени (в секундах)
         self.time = 0.0  # Текущее время симуляции
-        self.thermal_disturbance = ThermalDisturbance(max_amplitude=3.0, time_scale=0.05)
+        self.thermal_disturbance = ThermalDisturbance(max_amplitude=3.0, time_scale=0.05, strong_events=strong_events)
 
     def update(self, cooling_power: float) -> float:
         """Обновляет температуру в помещении на основе входного сигнала охлаждения"""
@@ -265,7 +272,11 @@ class Simulation:
         simulation_time: float = 300.0,
         model_path: str = None,
         scaler_params_path: str = None,
-        alpha: float = 0.5
+        alpha: float = 0.5,
+        strong_disturbances: bool = False,
+        num_strong_events: int = 3,
+        strong_event_duration: float = 10.0,
+        strong_event_amplitude: float = 10.0
     ):
         # Генерация случайных температур, если не указаны
         if target_temp is None:
@@ -273,7 +284,17 @@ class Simulation:
         if initial_temp is None:
             initial_temp = np.random.uniform(25.0, 35.0)  # Случайная начальная температура
         
-        self.room = RoomModel(initial_temp=initial_temp)
+        # Генерация мощных возмущений
+        strong_events = []
+        if strong_disturbances:
+            max_time = simulation_time - strong_event_duration
+            event_starts = np.sort(np.random.uniform(0, max_time, num_strong_events))
+            for start in event_starts:
+                strong_events.append((start, strong_event_duration, strong_event_amplitude))
+        else:
+            strong_events = None
+        
+        self.room = RoomModel(initial_temp=initial_temp, strong_events=strong_events)
         self.target_temp = target_temp
         self.simulation_time = simulation_time
         self.dt = 0.1
@@ -377,9 +398,17 @@ def main():
                       help='Коэффициент смешивания для гибридного режима (0 - только ПИД, 1 - только НС)')
     parser.add_argument('--num_simulations', type=int, default=1,
                       help='Количество симуляций для сбора данных')
+    parser.add_argument('--strong_disturbances', action='store_true',
+                      help='Включить мощные тепловые возмущения во время симуляции')
+    parser.add_argument('--num_strong_events', type=int, default=3,
+                      help='Количество мощных возмущений за симуляцию (по умолчанию 3)')
+    parser.add_argument('--strong_event_duration', type=float, default=10.0,
+                      help='Длительность одного мощного возмущения (сек) (по умолчанию 10)')
+    parser.add_argument('--strong_event_amplitude', type=float, default=10.0,
+                      help='Амплитуда мощного возмущения (по умолчанию 10)')
     args = parser.parse_args()
 
-    pid_params = (2.0, 0.1, 0.05)
+    pid_params = (10.0, 0.5, 0.2)
     simulation_time = 300.0
 
     try:
@@ -392,7 +421,11 @@ def main():
                 simulation = Simulation(
                     controller_type="pid",
                     pid_params=pid_params,
-                    simulation_time=simulation_time
+                    simulation_time=simulation_time,
+                    strong_disturbances=args.strong_disturbances,
+                    num_strong_events=args.num_strong_events,
+                    strong_event_duration=args.strong_event_duration,
+                    strong_event_amplitude=args.strong_event_amplitude
                 )
             else:
                 simulation = Simulation(
@@ -401,7 +434,11 @@ def main():
                     simulation_time=simulation_time,
                     model_path='model.pth',
                     scaler_params_path='scaler_params.json',
-                    alpha=args.alpha
+                    alpha=args.alpha,
+                    strong_disturbances=args.strong_disturbances,
+                    num_strong_events=args.num_strong_events,
+                    strong_event_duration=args.strong_event_duration,
+                    strong_event_amplitude=args.strong_event_amplitude
                 )
 
             simulation.run()
